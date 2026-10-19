@@ -1,6 +1,42 @@
-# CS329Z Assignment 1: Building an Agentic Harness
+# CS329Z Learning
 
-This is the starter repository for Assignment 1.
+个人学习仓库：逐步完成 CS329Z Assignment 1，记录实现思路、测试结果和遇到的问题。
+课程起始代码来自 [cs329z/assignment1-harness](https://github.com/cs329z/assignment1-harness)，
+保留原始 Git 历史和 [MIT License](LICENSE)。
+
+目前完成了本地环境、Codex CLI 模型接入和适配测试，课程题目的实现仍在进行中。
+每次完成一个小目标后提交对应代码和笔记，详细记录见 [学习日志](LEARNING_LOG.md)。
+
+## 学习进度
+
+- [x] 准备 Python 环境与邮件数据集
+- [x] 将模型接口接入 Codex CLI，保留缓存、账本与 ScriptedLM
+- [x] 验证适配层：9 项测试通过
+- [ ] 阅读 priority 题目和测试，完成邮件优先级分类
+- [ ] 完成 daily digest、BM25 与邮件问答
+- [ ] 逐步实现工具协议、工具注册与 Agent 循环
+- [ ] 完成记忆、压缩、guardrails 与综合评估
+
+## 每天提交
+
+先完成一个小目标，再把当天的改动、测试结果和下一步补充到 `LEARNING_LOG.md`。
+在 VS Code 的“源代码管理”中检查差异，暂存本次修改，填写提交说明并推送即可。
+命令行也可以按下面的步骤操作（把示例文件名和说明换成本次实际内容）：
+
+```powershell
+git status
+git diff
+git add cs329z_hw1/adapters.py LEARNING_LOG.md
+git commit -m "Implement priority classification"
+git push
+```
+
+实现放在新文件中时，也要把相应文件加入暂存区。测试和阅读笔记同样可以独立提交。
+
+## Assignment 1: Building an Agentic Harness
+
+The following sections describe the course setup and commands, adapted for this
+local learning repository.
 
 **Start by reading the handout, [`cs329z_assignment1_harness.pdf`](cs329z_assignment1_harness.pdf), in this directory.**
 It states every problem, what is graded, and the design decisions that
@@ -20,14 +56,23 @@ where things are.
    ships, and there is no operating-system jail on Windows (see "The
    terminal sandbox" below). WSL works too and gives you the Linux jail.
 
-2. Create your `.env` file and add your API key:
+2. Sign in to Codex CLI with your ChatGPT account:
 
    ```sh
-   cp .env.example .env
+   codex --version
+   codex login
+   codex login status
    ```
 
-   Open `.env` and fill in `OPENROUTER_API_KEY`. The file is gitignored. Do not
-   commit it.
+   This local learning version uses `codex exec`, not an API key. Codex CLI
+   must be on `PATH`; this integration was tested with version 0.144.6.
+   If you are already logged in with ChatGPT, skip `codex login`.
+   `.env` is optional and gitignored; `.env.example` lists model, timeout,
+   and evaluation settings. Test Python -> Codex with:
+
+   ```sh
+   uv run python -c "from cs329z_hw1.llm import LM; print(LM()([{'role':'user','content':'Only reply HELLO'}]))"
+   ```
 
 
 3. Unpack the email archive. It ships in the repository as
@@ -38,7 +83,8 @@ where things are.
    uv run python data/download.py
    ```
 
-4. Run the tests. In the starter, every test fails with `NotImplementedError`:
+4. Run the tests. Course tests initially fail with `NotImplementedError`
+   until you implement the adapters; provider integration tests should pass:
 
    ```sh
    uv run pytest
@@ -60,16 +106,19 @@ uv run pytest                          # all deterministic tests
 uv run pytest tests/test_priority.py   # one problem
 ```
 
-**Live tests** call the real model and compare your results against the
-thresholds in `tests/thresholds.py`. They cost money.
+**Live tests** call Codex using your ChatGPT plan and compare results against
+the original thresholds in `tests/thresholds.py`. They consume plan usage.
+The changed model/backend means these are learning checks, not an equivalent
+reproduction of the course's original model-based grading.
 
 ```sh
 uv run pytest -m live -s                          # all live tests
 uv run pytest tests/test_priority.py -m live -s   # one problem
 ```
 
-A live test takes from a few seconds to a few minutes (`priority` makes 60
-model calls, about a minute), and pytest prints nothing while it waits.
+A live test can take several minutes (`priority` makes 60 model calls),
+and pytest prints nothing while it waits. Starting a CLI per uncached call
+adds latency; the original test can run multiple calls concurrently.
 `-s` makes each test print its score and the items your code got wrong,
 whether or not it passes.
 
@@ -95,8 +144,9 @@ uv run python -m cs329z_hw1.show memory .lm_cache/chat_memory             # what
 uv run python -m cs329z_hw1.show memory                                   # each persona's memory after an evaluation run
 ```
 
-Each prints the result and the cost and time of the model calls. A repeat
-with unchanged code is free.
+Each prints the result and the time of model calls. Codex does not report
+USD charges; displayed dollar zeros are placeholders. Cached repeats use
+no additional model quota.
 
 ## Model calls and spending
 
@@ -106,18 +156,33 @@ All model calls go through `cs329z_hw1.llm.LM`: a list of
 ```python
 from cs329z_hw1.llm import LM
 
-lm = LM()            # the grading model, openai/gpt-6-luna
-judge = LM("judge")  # the evaluation's judge model, openai/gpt-6-sol
+lm = LM()            # Codex model, gpt-5.6-sol
+judge = LM("judge")  # same verified model by default; override in .env
 text = lm([{"role": "user", "content": "Say hello."}])
 ```
 
-The wrapper does three things:
+`_complete()` serializes the ordered system/user/assistant messages as JSON
+in one prompt. The CLI returns the next assistant reply through
+`--output-last-message`; stdout JSON events provide token usage. This is a
+chat-role emulation, not native Chat Completions role handling.
 
-- **Cache.** Each reply is stored under `.lm_cache/`, keyed on the model,
+Calls run in a temporary directory with `--sandbox read-only`, personal config
+ignored, and native command execution, apps, plugins and agent delegation
+disabled. Codex interprets the conversation as text; your course harness still
+implements and executes its own tool protocol. The original `ScriptedLM` and
+course adapters are unchanged. The original provider file is backed up as
+`cs329z_hw1/llm_openrouter_backup.py`.
+
+The wrapper retains:
+
+- **Cache.** Each reply is stored under `.lm_cache/`, keyed on the provider, model,
   the sampling settings and the exact messages. Repeating an identical call
-  returns the stored reply and costs nothing.
+  returns the stored reply without calling Codex. Old provider cache entries
+  remain on disk but are not reused by Codex.
 - **Ledger.** Each call that reaches the provider is appended to
-  `.lm_cache/ledger.jsonl` with its token counts and cost. Print the totals
+  `.lm_cache/ledger.jsonl` with its real CLI token counts, time and provider.
+  `cost_usd=0` and `cost_source=not_reported_chatgpt` mean the USD cost is
+  unavailable, not that the call consumes no quota. Print the totals
   by model and by tag (the test suite tags each call with the test name)
   with:
 
@@ -125,12 +190,20 @@ The wrapper does three things:
   uv run python -m cs329z_hw1.llm
   ```
 
-- **Budget.** The key we issue you has a spending limit on our side, and
-  calls fail once it is reached. `CS329Z_BUDGET_USD` (in `.env` or the
-  environment) is a second limit you set for yourself: once the ledger
-  total reaches it, the wrapper raises `BudgetExceeded` instead of making
-  a call, so a runaway loop stops before the key does. Cached replies are
-  still returned.
+- **Budget.** The original `CS329Z_BUDGET_USD` ledger check remains and still
+  raises `BudgetExceeded` when recorded dollar spending reaches the cap.
+  It cannot limit ChatGPT quota, because Codex does not report dollar charges.
+  Account limits still apply. Use a small `CS329Z_EVAL_SLICE` while learning.
+
+`temperature` and `max_tokens` remain accepted and are part of cache keys,
+but the CLI has no equivalent per-call controls, so they are not enforced.
+`OutputTruncated` remains available for course compatibility; CLI failures
+and timeouts raise `RuntimeError` and do not create cached replies.
+`CS329Z_REASONING_EFFORT` controls Codex reasoning effort (default `low`), and
+`CS329Z_CODEX_TIMEOUT_SECONDS` controls the subprocess timeout (default 180).
+
+Official references: [non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
+and [CLI configuration](https://learn.chatgpt.com/docs/config-file/config-reference).
 
 Deleting `.lm_cache/` deletes both the cache and the ledger.
 

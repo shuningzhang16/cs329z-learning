@@ -8,3 +8,7 @@ data/raw/
 runs/
 *.pyc
 .DS_Store
+
+# Local duplicate checkout and pre-migration backup.
+/CS329Z/
+/cs329z_hw1/llm_openrouter_backup.py

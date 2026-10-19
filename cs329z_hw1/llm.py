@@ -1,4 +1,4 @@
-"""Course-provided language model wrapper.
+"""Course language model wrapper, using Codex CLI with ChatGPT login.
 
 This module gives you exactly one primitive: a chat-completion call that takes
 a list of messages and returns a string.
@@ -15,15 +15,17 @@ What the wrapper does for you:
 * Disk cache. Every call is cached under ``.lm_cache/`` keyed on the model,
   the sampling settings, and the exact messages. Re-running unchanged code
   costs nothing.
-* Cost ledger. Every call that reaches the provider is appended to
-  ``.lm_cache/ledger.jsonl`` with its token counts and dollar cost.
+* Usage ledger. Every completed call is appended to ``.lm_cache/ledger.jsonl``
+  with the token counts reported by Codex. USD cost is not reported by the CLI;
+  ``cost_usd=0`` is a compatibility placeholder, not a claim of free usage.
   ``uv run python -m cs329z_hw1.llm`` prints a spending report.
 * Budget stop. If ``CS329Z_BUDGET_USD`` is set, the wrapper raises
   ``BudgetExceeded`` instead of making a call once the ledger total passes it.
-* Truncation. A call that stops because the model reached ``max_tokens``
-  raises ``OutputTruncated`` instead of returning the cut-off text. The
-  exception carries the text produced so far (``.text``) and the token
-  counts. The call is charged and recorded in the ledger but not cached.
+  This legacy USD check cannot cap ChatGPT subscription usage.
+* Compatibility. ``temperature`` and ``max_tokens`` remain constructor/cache
+  settings, but Codex CLI does not expose equivalent per-call controls. The
+  original truncation exception remains available to course code; CLI failures
+  raise RuntimeError and are never cached.
 
 ``ScriptedLM`` is a drop-in fake used by the deterministic tests. It replays a
 fixed list of replies and never touches the network.
@@ -35,6 +37,9 @@ import copy
 import hashlib
 import json
 import os
+import shutil
+import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -47,27 +52,21 @@ Message = dict  # {"role": "system" | "user" | "assistant", "content": str}
 # Model used for each role. Override any of these with the environment
 # variable CS329Z_<ROLE>_MODEL, e.g. CS329Z_GRADING_MODEL.
 DEFAULT_MODELS = {
-    "grading": "openai/gpt-6-luna",  # the model your agent is graded with
-    "user": "openai/gpt-6-luna",  # plays the simulated users
-    "judge": "openai/gpt-6-sol",  # scores evaluation transcripts
+    "grading": "gpt-5.6-sol",  # verified with this installation's ChatGPT login
+    "user": "gpt-5.6-sol",  # plays the simulated users
+    "judge": "gpt-5.6-sol",  # scores evaluation transcripts
 }
 
-# Calls go to OpenRouter, which fronts many providers behind one
-# OpenAI-compatible API. Model names carry the provider as a prefix
-# ("openai/gpt-6-luna"); https://openrouter.ai/models lists them.
-OPENROUTER_URL = "https://openrouter.ai/api/v1"
+# Also separates the existing disk cache from replies from the old provider.
+PROVIDER = "codex-cli"
 
 # Reasoning effort requested from models that accept it (GPT-5 and GPT-6).
 # Override with CS329Z_REASONING_EFFORT.
 DEFAULT_REASONING_EFFORT = "low"
 
-# USD per 1M tokens: (input, cached input, output), keyed by the model name
-# without its provider prefix. OpenRouter reports the exact cost of each
-# call in the response, and the ledger records that; this table is the
-# fallback for a response without one, and it is checked when an LM is
-# created so that an unknown model fails before a paid call. Read from
-# https://openrouter.ai/models on 2026-10-05 (the same as OpenAI's list
-# prices).
+# Legacy API price estimates retained for compatibility with course utilities.
+# Codex calls supply cost=0 with cost_source='not_reported_chatgpt', so this
+# table is never used to estimate ChatGPT subscription charges.
 PRICES = {
     "gpt-4.1": (2.00, 0.50, 8.00),
     "gpt-4.1-mini": (0.40, 0.10, 1.60),
@@ -167,10 +166,6 @@ def _load_env() -> None:
 
 
 _ledger_lock = threading.Lock()
-# Models that reject the temperature or reasoning_effort parameters, learned
-# from the provider's error the first time each is used.
-_NO_TEMPERATURE: set[str] = set()
-_NO_EFFORT: set[str] = set()
 
 
 def read_ledger() -> list[dict]:
@@ -220,12 +215,11 @@ class LM:
     Parameters
     ----------
     model:
-        A role ("grading", "user", "judge"), an OpenRouter model name such
-        as "openai/gpt-6-sol", or ``None`` for "grading".
+        A role ("grading", "user", "judge"), a Codex model name such
+        as "gpt-5.6-sol", or ``None`` for "grading".
     temperature, max_tokens:
-        Sampling settings. They are part of the cache key. Reasoning models
-        spend part of ``max_tokens`` on hidden reasoning, so keep it large.
-        Models that reject ``temperature`` are called without it.
+        Retained for course compatibility and cache separation. Codex CLI does
+        not expose equivalent controls, so these are not enforced by Codex.
     tag:
         A free-form label written to the cost ledger so spending can be
         grouped (the test suite sets it to the test name).
@@ -248,7 +242,6 @@ class LM:
     ) -> None:
         _load_env()
         self.model = resolve_model(model)
-        _price(self.model)  # fail now, not after a paid call, if the price is unknown
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.tag = tag
@@ -261,7 +254,6 @@ class LM:
         self.output_tokens = 0
         self.cost_usd = 0.0
         self.seconds = 0.0
-        self._client = None
 
     # -- public API -------------------------------------------------------
 
@@ -291,11 +283,13 @@ class LM:
             {
                 "ts": round(start, 3),
                 "model": self.model,
+                "provider": PROVIDER,
                 "tag": self.tag or os.environ.get("CS329Z_TAG", ""),
                 "input_tokens": usage["input"],
                 "cached_tokens": usage["cached"],
                 "output_tokens": usage["output"],
                 "cost_usd": cost,
+                "cost_source": usage.get("cost_source", "reported"),
                 "seconds": round(elapsed, 3),
                 "finish_reason": usage.get("finish_reason"),
             }
@@ -324,6 +318,7 @@ class LM:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cost_usd": self.cost_usd,
+            "cost_source": "not_reported_chatgpt",
             "seconds": self.seconds,
         }
 
@@ -332,7 +327,7 @@ class LM:
     def _key(self, messages: list[Message]) -> str:
         effort = os.environ.get("CS329Z_REASONING_EFFORT", DEFAULT_REASONING_EFFORT)
         blob = json.dumps(
-            [self.model, self.temperature, self.max_tokens, effort, self.salt, messages],
+            [PROVIDER, self.model, self.temperature, self.max_tokens, effort, self.salt, messages],
             sort_keys=True,
             ensure_ascii=False,
         )
@@ -350,66 +345,81 @@ class LM:
             )
 
     def _complete(self, messages: list[Message]) -> tuple[str, dict]:
-        if self._client is None:
-            from openai import OpenAI
-
-            key = os.environ.get("OPENROUTER_API_KEY")
-            if not key:
-                raise RuntimeError(
-                    "OPENROUTER_API_KEY is not set. Copy .env.example to .env and add your key."
-                )
-            self._client = OpenAI(
-                base_url=OPENROUTER_URL,
-                api_key=key,
-                max_retries=6,
-                timeout=120,
-                default_headers={"X-Title": "CS329Z HW1"},
-            )
-        kwargs: dict = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": self.max_tokens,
-            # OpenRouter extensions: the reasoning effort, and the request
-            # that the response carry the cost of the call.
-            "extra_body": {"usage": {"include": True}},
-        }
-        if self.model not in _NO_TEMPERATURE:
-            kwargs["temperature"] = self.temperature
+        executable = shutil.which("codex")
+        if executable is None:
+            raise RuntimeError("Codex CLI was not found on PATH. Install it and run `codex login`.")
+        # JSON keeps message boundaries intact even when content contains role
+        # labels, quotes or newlines. This emulates chat roles in one CLI prompt.
+        prompt = (
+            "Act as the language-model backend for the conversation below. "
+            "Produce only the next assistant message, following the system messages "
+            "and using user/assistant messages as conversation history. "
+            "Return the requested text or JSON exactly, without a wrapper or commentary. "
+            "Do not use native Codex tools, inspect files, browse, or modify files. "
+            "Any tool-call syntax requested by the conversation is text for the course "
+            "harness to interpret; do not execute those tools yourself.\n\n"
+            "Conversation (JSON):\n" + json.dumps(messages, ensure_ascii=False)
+        )
         effort = os.environ.get("CS329Z_REASONING_EFFORT", DEFAULT_REASONING_EFFORT)
-        if effort and self.model not in _NO_EFFORT:
-            kwargs["extra_body"]["reasoning"] = {"effort": effort}
-        try:
-            response = self._client.chat.completions.create(**kwargs)
-        except Exception as exc:  # some models reject temperature or reasoning effort
-            text = str(exc)
-            if "temperature" in text and "temperature" in kwargs:
-                _NO_TEMPERATURE.add(self.model)
-                kwargs.pop("temperature")
-                response = self._client.chat.completions.create(**kwargs)
-            elif "reasoning" in text and "reasoning" in kwargs["extra_body"]:
-                _NO_EFFORT.add(self.model)
-                kwargs["extra_body"].pop("reasoning")
-                response = self._client.chat.completions.create(**kwargs)
-            else:
-                raise
-        choice = response.choices[0]
-        text = choice.message.content or ""
-        u = response.usage
-        details = getattr(u, "prompt_tokens_details", None)
-        cached = getattr(details, "cached_tokens", 0) or 0
-        out_details = getattr(u, "completion_tokens_details", None)
-        reasoning = getattr(out_details, "reasoning_tokens", 0) or 0
-        usage = {
-            "input": u.prompt_tokens,
-            "cached": cached,
-            "output": u.completion_tokens,
-            "reasoning": reasoning,
-            "finish_reason": getattr(choice, "finish_reason", None),
-        }
-        cost = getattr(u, "cost", None)  # OpenRouter's figure for this call
-        if isinstance(cost, (int, float)):
-            usage["cost"] = float(cost)
-        return text, usage
+        timeout = float(os.environ.get("CS329Z_CODEX_TIMEOUT_SECONDS", "180"))
+        # Keep the CLI outside the coursework tree. Auth is still read from the
+        # normal Codex home, while personal config/plugins do not alter the call.
+        with tempfile.TemporaryDirectory(prefix="cs329z-codex-") as tmpdir:
+            output_path = Path(tmpdir) / "answer.txt"
+            command = [
+                executable, "exec", "--ignore-user-config", "--ephemeral",
+                "--sandbox", "read-only", "--skip-git-repo-check", "--json",
+                "--model", self.model, "--output-last-message", str(output_path),
+                "-c", 'forced_login_method="chatgpt"',
+                "-c", 'approval_policy="never"',
+                "-c", 'web_search="disabled"',
+                "-c", "project_doc_max_bytes=0",
+            ]
+            # The course implements its own agent tools. Disable Codex's native
+            # execution/integrations instead of letting it perform the assignment.
+            for feature in (
+                "shell_tool", "apps", "plugins", "multi_agent", "browser_use",
+                "computer_use", "image_generation", "hooks",
+            ):
+                command.extend(["-c", f"features.{feature}=false"])
+            if effort:
+                command.extend(["-c", f"model_reasoning_effort={json.dumps(effort)}"])
+            command.append("-")
+            try:
+                result = subprocess.run(
+                    command, input=prompt, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", cwd=tmpdir, timeout=timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(
+                    f"Codex timed out after {timeout:g}s. Adjust CS329Z_CODEX_TIMEOUT_SECONDS if needed."
+                ) from exc
+            if result.returncode != 0:
+                # --json puts model/auth errors on stdout; stderr can contain
+                # unrelated startup warnings, so retain both for diagnosis.
+                raise RuntimeError("Codex failed:\n" + result.stderr + "\n" + result.stdout)
+            completed = None
+            for line in result.stdout.splitlines():
+                event = json.loads(line)
+                if event.get("type") == "turn.failed":
+                    raise RuntimeError(f"Codex failed: {event.get('error')}")
+                if event.get("type") == "turn.completed":
+                    completed = event
+            if completed is None or not output_path.is_file():
+                raise RuntimeError("Codex did not return a completed turn and final answer.")
+            text = output_path.read_text(encoding="utf-8").strip()
+            if not text:
+                raise RuntimeError("Codex returned an empty final answer.")
+            counts = completed["usage"]
+            return text, {
+                "input": counts["input_tokens"],
+                "cached": counts.get("cached_input_tokens", 0),
+                "output": counts["output_tokens"],
+                "reasoning": counts.get("reasoning_output_tokens", 0),
+                "cost": 0.0,
+                "cost_source": "not_reported_chatgpt",
+                "finish_reason": "completed",
+            }
 
 
 class ScriptedLM:
@@ -517,6 +527,11 @@ def spending_report(rows: list[dict] | None = None) -> str:
     total = sum(r.get("cost_usd", 0.0) for r in rows)
     cut = sum(r.get("finish_reason") == "length" for r in rows)
     lines.append(f"Total: {len(rows)} calls, ${total:.3f}" + (f"; {cut} cut off at max_tokens" if cut else ""))
+    if any(row.get("cost_source") == "not_reported_chatgpt" for row in rows):
+        lines.append(
+            "Codex/ChatGPT USD cost is not reported; $0 is a placeholder. "
+            "Calls consume your plan's usage. CS329Z_BUDGET_USD cannot limit that usage."
+        )
     return "\n".join(lines)
 
 
