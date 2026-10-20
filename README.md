@@ -12,7 +12,7 @@
 - [x] 准备 Python 环境与邮件数据集
 - [x] 将模型接口接入 Codex CLI，保留缓存、账本与 ScriptedLM
 - [x] 验证适配层：9 项测试通过
-- [ ] 阅读 priority 题目和测试，完成邮件优先级分类
+- [x] 阅读 priority 题目和测试，完成邮件优先级分类
 - [ ] 完成 daily digest、BM25 与邮件问答
 - [ ] 逐步实现工具协议、工具注册与 Agent 循环
 - [ ] 完成记忆、压缩、guardrails 与综合评估
