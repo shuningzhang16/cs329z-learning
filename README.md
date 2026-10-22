@@ -17,6 +17,10 @@
 - [ ] 逐步实现工具协议、工具注册与 Agent 循环
 - [ ] 完成记忆、压缩、guardrails 与综合评估
 
+手敲对照：[Part 1 完整参考代码](reference/part1_reference.py)，包含 priority、daily digest、
+BM25 和邮件问答。按函数填入 `cs329z_hw1/adapters.py`；参考文件只含 Part 1，
+不要用它覆盖整个 `adapters.py`。参考代码的验证结果见学习日志。
+
 ## 每天提交
 
 先完成一个小目标，再把当天的改动、测试结果和下一步补充到 `LEARNING_LOG.md`。
