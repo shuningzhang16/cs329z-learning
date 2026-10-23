@@ -4,7 +4,7 @@
 课程起始代码来自 [cs329z/assignment1-harness](https://github.com/cs329z/assignment1-harness)，
 保留原始 Git 历史和 [MIT License](LICENSE)。
 
-目前完成了本地环境、Codex CLI 模型接入和适配测试，课程题目的实现仍在进行中。
+目前完成了本地环境、Codex CLI 模型接入和 Part 1 邮件处理与检索流程，接下来实现 Part 2 Agent。
 每次完成一个小目标后提交对应代码和笔记，详细记录见 [学习日志](LEARNING_LOG.md)。
 
 ## 学习进度
@@ -13,13 +13,13 @@
 - [x] 将模型接口接入 Codex CLI，保留缓存、账本与 ScriptedLM
 - [x] 验证适配层：9 项测试通过
 - [x] 阅读 priority 题目和测试，完成邮件优先级分类
-- [ ] 完成 daily digest、BM25 与邮件问答
+- [x] 完成 daily digest、BM25 与邮件问答
 - [ ] 逐步实现工具协议、工具注册与 Agent 循环
 - [ ] 完成记忆、压缩、guardrails 与综合评估
 
-手敲对照：[Part 1 完整参考代码](reference/part1_reference.py)，包含 priority、daily digest、
-BM25 和邮件问答。按函数填入 `cs329z_hw1/adapters.py`；参考文件只含 Part 1，
-不要用它覆盖整个 `adapters.py`。参考代码的验证结果见学习日志。
+Part 1 已实现在 [`cs329z_hw1/adapters.py`](cs329z_hw1/adapters.py)。
+[完整参考代码](reference/part1_reference.py) 保留用于对照学习，包含 priority、daily digest、
+BM25 和邮件问答。验证结果见学习日志。
 
 ## 每天提交
 

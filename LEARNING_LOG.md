@@ -2,6 +2,15 @@
 
 按实际完成的日期记录学习内容、代码变化和验证结果。每次提交对应一个可说明的小目标。
 
+## 2026-10-23：将 Part 1 实现接入 adapters
+
+- 将参考代码中的 daily digest、BM25 建索引与搜索、email QA 四个实现填入 `cs329z_hw1/adapters.py`，补齐导入，保留原接口与题目说明。
+- Part 1 五个函数的实现与已验证参考代码一致；Part 2 继续按后续学习计划完成。
+- 在实际 `adapters.py` 上运行 `uv run pytest tests/test_priority.py tests/test_daily_digest.py tests/test_bm25.py tests/test_email_qa.py -s`，结果为 **63 passed, 6 deselected**。
+- BM25 在 26,278 封邮件上建索引约 **11.6 秒**，平均查询约 **13 毫秒**，recall@10 为 **1.000**，均满足测试要求。
+- 本次没有新增真实模型调用；真实问答与摘要的验证范围见 2026-10-22 记录，摘要其余四个日期仍未验证。
+- 下一步：实现 Part 2 的工具注册与工具调用协议。
+
 ## 2026-10-22：准备 Part 1 手敲参考代码
 
 - 新增 `reference/part1_reference.py`，包含 Part 1 的五个入口，供逐个手敲到 `cs329z_hw1/adapters.py`。
