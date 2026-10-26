@@ -4,7 +4,8 @@
 课程起始代码来自 [cs329z/assignment1-harness](https://github.com/cs329z/assignment1-harness)，
 保留原始 Git 历史和 [MIT License](LICENSE)。
 
-目前完成了本地环境、Codex CLI 模型接入和 Part 1 邮件处理与检索流程，接下来实现 Part 2 Agent。
+目前已完成 adapters 的全部入口，包括 Part 1 邮件处理与检索流程和 Part 2 Agent。
+全套确定性测试 **297 项通过**；真实模型验证范围见学习日志。
 每次完成一个小目标后提交对应代码和笔记，详细记录见 [学习日志](LEARNING_LOG.md)。
 
 ## 学习进度
@@ -14,12 +15,17 @@
 - [x] 验证适配层：9 项测试通过
 - [x] 阅读 priority 题目和测试，完成邮件优先级分类
 - [x] 完成 daily digest、BM25 与邮件问答
-- [ ] 逐步实现工具协议、工具注册与 Agent 循环
-- [ ] 完成记忆、压缩、guardrails 与综合评估
+- [x] 实现工具协议、工具注册与 Agent 循环
+- [x] 完成终端、文档检索、记忆、压缩、交互与 guardrails
+- [x] 接入综合评估，跑通 scripted persona 和 3 个真实模拟用户
 
 Part 1 已实现在 [`cs329z_hw1/adapters.py`](cs329z_hw1/adapters.py)。
 [完整参考代码](reference/part1_reference.py) 保留用于对照学习，包含 priority、daily digest、
 BM25 和邮件问答。验证结果见学习日志。
+
+Part 2 通过 adapters 调用 [`cs329z_hw1/agent/`](cs329z_hw1/agent/) 中的实现：
+`registry.py` 注册和校验工具，`protocol.py` 编解码调用，`session.py` 管理会话和预算，
+`tools.py` 接入十个内置工具与记忆，`documents.py` 提供文档检索和分页读取。
 
 ## 每天提交
 
