@@ -23,9 +23,9 @@ Part 1 已实现在 [`cs329z_hw1/adapters.py`](cs329z_hw1/adapters.py)。
 [完整参考代码](reference/part1_reference.py) 保留用于对照学习，包含 priority、daily digest、
 BM25 和邮件问答。验证结果见学习日志。
 
-Part 2 通过 adapters 调用 [`cs329z_hw1/agent/`](cs329z_hw1/agent/) 中的实现：
-`registry.py` 注册和校验工具，`protocol.py` 编解码调用，`session.py` 管理会话和预算，
-`tools.py` 接入十个内置工具与记忆，`documents.py` 提供文档检索和分页读取。
+Part 2 的实现也直接写在 `adapters.py` 对应函数中，包含工具注册、调用协议、Agent 会话、
+文档检索和分页读取。内置工具、记忆与语料缓存等共用辅助代码放在同一文件末尾，
+无需跳转到其他自定义模块阅读实现。
 
 ## 每天提交
 
