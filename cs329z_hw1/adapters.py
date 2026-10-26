@@ -116,6 +116,7 @@ Then give one short sentence explaining why.
     category = match.group(1).lower() if match else "unknown"
     reason = reply or "The model returned an empty reply."
     return {"category": category, "reason": reason}
+    raise NotImplementedError
 
 
 def run_daily_digest(emails: list[Email], lm: LMCallable) -> str:
@@ -166,6 +167,7 @@ Return only the digest, without commentary about your process.
         {"role": "system", "content": prompt},
         {"role": "user", "content": json.dumps(groups, ensure_ascii=False)},
     ])
+    raise NotImplementedError
 
 
 def run_bm25_build(docs: list[str]) -> Any:
@@ -207,6 +209,7 @@ def run_bm25_build(docs: list[str]) -> Any:
             )
 
     return dict(postings)
+    raise NotImplementedError
 
 
 def run_bm25_search(index: Any, query: str, k: int) -> list[tuple[int, float]]:
@@ -237,6 +240,7 @@ def run_bm25_search(index: Any, query: str, k: int) -> list[tuple[int, float]]:
         scores.items(),
         key=lambda item: (-item[1], item[0]),
     )
+    raise NotImplementedError
 
 
 def run_email_qa(
@@ -323,6 +327,7 @@ If no searches remain, "query" must be null. Never invent an answer.
         query = query.strip()
 
     return {"answer": None, "support": []}
+    raise NotImplementedError
 
 
 # ======================================================================
@@ -393,6 +398,7 @@ def run_tool_registry(tools: list[ToolSpec]) -> Any:
                 return ToolResult("tool_error", f"{type(exc).__name__}: {exc}")
 
     return ToolRegistry(tools)
+    raise NotImplementedError
 
 
 def run_render_tools(schemas: list[dict]) -> str:
@@ -418,6 +424,7 @@ def run_render_tools(schemas: list[dict]) -> str:
         "calls in one reply; wait for each tool result before the next call. "
         "When no tool is needed, give a plain-text final answer without tool tags."
     )
+    raise NotImplementedError
 
 
 def run_parse_response(text: str) -> ParsedResponse:
@@ -462,6 +469,7 @@ def run_parse_response(text: str) -> ParsedResponse:
         return ParsedResponse(remaining, ToolCall(payload["name"], payload["args"]))
     except Exception as exc:
         return ParsedResponse(text.strip(), error=f"Malformed tool call: {exc}")
+    raise NotImplementedError
 
 
 def run_format_tool_call(text: str, call: ToolCall) -> str:
@@ -484,6 +492,7 @@ def run_format_tool_call(text: str, call: ToolCall) -> str:
         {"name": call.name, "args": call.args}, ensure_ascii=False, allow_nan=False
     )
     return f"{text.strip()}\n{_OPEN}{payload}{_CLOSE}".strip()
+    raise NotImplementedError
 
 
 def run_agent_session(
@@ -815,6 +824,7 @@ def run_agent_session(
                     return self._result("Stopped after three consecutive malformed model replies.", "malformed")
 
     return AgentSession(lm, tools, config)
+    raise NotImplementedError
 
 
 def run_build_doc_index(docs: list[dict]) -> Any:
@@ -867,6 +877,7 @@ def run_build_doc_index(docs: list[dict]) -> Any:
         "bm25": run_bm25_build(texts),
         "idf": {term: math.log(1 + len(docs) / count) for term, count in frequencies.items()},
     }
+    raise NotImplementedError
 
 
 def run_search_docs(index: Any, query: str, k: int = 5) -> list[SearchResult]:
@@ -908,6 +919,7 @@ def run_search_docs(index: Any, query: str, k: int = 5) -> list[SearchResult]:
         if len(results) == k:
             break
     return results
+    raise NotImplementedError
 
 
 def run_read_doc(index: Any, doc_id: str, start_line: int = 1) -> DocWindow:
@@ -946,6 +958,7 @@ def run_read_doc(index: Any, doc_id: str, start_line: int = 1) -> DocWindow:
         "total_lines": len(lines),
         "text": "\n".join(lines[start_line - 1:end]),
     }
+    raise NotImplementedError
 
 
 # ======================================================================
